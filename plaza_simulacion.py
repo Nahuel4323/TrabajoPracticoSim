@@ -7,6 +7,8 @@ import streamlit as st
 import pandas as pd
 import math
 import random
+import plotly.express as px
+import plotly.graph_objects as go
 from dataclasses import dataclass, field
 from typing import Optional
 import copy
@@ -182,9 +184,12 @@ class SimulacionPlaza:
         self.contador_volvieron_preguntar = 0
         self.contador_informados = 0
         self.contador_informados_no_fueron_entrevista = 0
+        self.contador_rechazo_entrevista = 0          # informados que dijeron "NO"
+        self.contador_se_fue_puestos_llenos = 0        # aceptó pero no había entrevistador libre
         self.acum_tiempo_contactos_ocupados = 0.0
         self.acum_tiempo_entrevistadores_ocupados = 0.0
         self.acum_edades_completaron_entrevista = 0.0
+        self.edades_entrevista_completada: list[float] = []  # para histograma
 
         # Siguiente llegada
         rnd, ts = gen_exponencial(p["media_llegada_min"])
@@ -340,10 +345,12 @@ class SimulacionPlaza:
                     # Todos los entrevistadores ocupados → persona se va
                     transeunte.estado = "Se Fue (puestos llenos)"
                     self.contador_informados_no_fueron_entrevista += 1
+                    self.contador_se_fue_puestos_llenos += 1
                     del self.transeuntes_activos[tid]
             else:
                 transeunte.estado = "Rechazó entrevista"
                 self.contador_informados_no_fueron_entrevista += 1
+                self.contador_rechazo_entrevista += 1
                 del self.transeuntes_activos[tid]
 
         evento_nombre = f"Fin_informando_C{id_contacto}_T{tid}"
@@ -368,6 +375,7 @@ class SimulacionPlaza:
         if transeunte:
             self.contador_entrevistas_finalizadas += 1
             self.acum_edades_completaron_entrevista += transeunte.edad
+            self.edades_entrevista_completada.append(transeunte.edad)
             transeunte.estado = "Entrevista Finalizada"
             del self.transeuntes_activos[tid]
 
@@ -601,8 +609,8 @@ class SimulacionPlaza:
             if self.contador_entrevistas_finalizadas > 0 else 0
         )
 
-        # 8. Tasa de conversión global (entrevistas finalizadas / transeúntes totales)
-        m["8. Tasa de Conversión Global (%)"] = (
+        # 8. % de personas efectivamente entrevistadas sobre el total que pasó por la plaza
+        m["8. % de Personas Entrevistadas sobre el Total que Pasó por la Plaza"] = (
             round(self.contador_entrevistas_finalizadas / self.contador_transeuntes_totales * 100, 2)
             if self.contador_transeuntes_totales > 0 else 0
         )
@@ -616,6 +624,8 @@ class SimulacionPlaza:
         m["Total Abandonos Contactos Ocupados"] = self.contador_abandonos_contactos_ocupados
         m["Total Volvieron Preguntar"] = self.contador_volvieron_preguntar
         m["Total Informados No Entrevistados"] = self.contador_informados_no_fueron_entrevista
+        m["Total Rechazaron la Entrevista"] = self.contador_rechazo_entrevista
+        m["Total Se Fueron (Entrevistadores Llenos)"] = self.contador_se_fue_puestos_llenos
         m["Reloj Final (min)"] = round(reloj_final, 4)
         m["Iteraciones"] = self.iter
 
@@ -641,8 +651,21 @@ def main():
         st.header("⚙️ Parámetros")
 
         st.subheader("Sistema")
-        media_llegada_personas_hora = st.number_input("Media llegada (personas/hora)", value=90.0, min_value=1.0)
-        media_llegada_min = 60.0 / media_llegada_personas_hora
+        lambda_llegada = st.number_input(
+            "λ - Tasa de llegada (personas / minuto)",
+            value=1.5,
+            min_value=0.0001,
+            step=0.1,
+            format="%.4f",
+            help="Tasa media (λ) de la exponencial negativa de llegada de transeúntes, "
+                 "expresada directamente en personas por minuto. "
+                 "Ej: 90 personas/hora equivale a λ = 1.5 personas/minuto.",
+        )
+        media_llegada_min = 1.0 / lambda_llegada
+        st.caption(
+            f"≈ {lambda_llegada * 60:.2f} personas/hora · "
+            f"Tiempo medio entre llegadas = {media_llegada_min:.4f} min"
+        )
 
         media_entrevista = st.number_input("Media duración entrevista (min)", value=3.0, min_value=0.1)
         prob_acepta = st.slider("P(acepta entrevista)", 0.0, 1.0, 0.85, 0.01)
@@ -706,9 +729,10 @@ def main():
         st.success(f"✅ Simulación completada — {sim.iter} iteraciones / Reloj final: {round(sim.reloj, 2)} min")
 
         # ── Tabs ─────────────────────────────────────────────────────────────
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📊 Vector de Estado",
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🧮 Vector de Estado",
             "📈 Métricas",
+            "📊 Gráficos",
             "🔢 Tablas Runge-Kutta",
             "📋 Última Fila",
         ])
@@ -747,25 +771,130 @@ def main():
             items = [(k, v) for k, v in metricas_principales.items()]
             mid = len(items) // 2
 
-            for k, v in items[:mid]:
-                if isinstance(v, float):
-                    col1.metric(k, f"{v}%")
-                else:
-                    col1.metric(k, v)
-
-            for k, v in items[mid:]:
+            for idx, (k, v) in enumerate(items):
+                col = col1 if idx < mid else col2
                 if isinstance(v, float) and "%" in k:
-                    col2.metric(k, f"{v}%")
+                    col.metric(k, f"{v}%")
                 else:
-                    col2.metric(k, v)
+                    col.metric(k, v)
 
             st.divider()
             st.subheader("Tabla de métricas completa")
             df_met = pd.DataFrame(list(metricas.items()), columns=["Métrica", "Valor"])
             st.dataframe(df_met, use_container_width=True)
 
-        # ── Tab 3: Tablas Runge-Kutta ────────────────────────────────────────
+        # ── Tab 3: Gráficos ──────────────────────────────────────────────────
         with tab3:
+            st.subheader("📊 Gráficos de apoyo a la toma de decisiones")
+
+            colA, colB = st.columns(2)
+
+            # 1) Ocupación de servidores
+            with colA:
+                st.markdown("**Ocupación promedio de servidores**")
+                ocup_contactos = metricas["1. % Ocupación Promedio Contactos"]
+                ocup_entrev = metricas["2. % Ocupación Promedio Entrevistadores"]
+                fig_ocup = go.Figure(data=[
+                    go.Bar(
+                        x=["Contactos", "Entrevistadores"],
+                        y=[ocup_contactos, ocup_entrev],
+                        text=[f"{ocup_contactos}%", f"{ocup_entrev}%"],
+                        textposition="auto",
+                        marker_color=["#1f77b4", "#ff7f0e"],
+                    )
+                ])
+                fig_ocup.update_layout(yaxis_title="% Ocupación", yaxis_range=[0, 100], height=380)
+                st.plotly_chart(fig_ocup, use_container_width=True)
+                st.caption("Si un recurso está cerca del 100%, es un cuello de botella: "
+                           "considerar sumar más contactos o entrevistadores.")
+
+            # 2) Embudo de conversión
+            with colB:
+                st.markdown("**Embudo de conversión de personas**")
+                fig_funnel = go.Figure(go.Funnel(
+                    y=["Pasaron por la plaza", "Fueron informados", "Aceptaron entrevista", "Entrevista finalizada"],
+                    x=[
+                        sim.contador_transeuntes_totales,
+                        sim.contador_informados,
+                        sim.contador_entrevistas_aceptadas,
+                        sim.contador_entrevistas_finalizadas,
+                    ],
+                    textinfo="value+percent initial",
+                ))
+                fig_funnel.update_layout(height=380)
+                st.plotly_chart(fig_funnel, use_container_width=True)
+                st.caption("Muestra en qué etapa se pierden más personas potencialmente entrevistables.")
+
+            colC, colD = st.columns(2)
+
+            # 3) Motivos de pérdida
+            with colC:
+                st.markdown("**¿Por qué no se concretaron entrevistas?**")
+                motivos = {
+                    "Contactos ocupados (no volvió)":
+                        sim.contador_abandonos_contactos_ocupados - sim.contador_volvieron_preguntar,
+                    "Contactos ocupados (volvió a preguntar)": sim.contador_volvieron_preguntar,
+                    "Rechazó la entrevista": sim.contador_rechazo_entrevista,
+                    "Entrevistadores ocupados": sim.contador_se_fue_puestos_llenos,
+                }
+                if sum(motivos.values()) > 0:
+                    fig_motivos = go.Figure(data=[go.Pie(
+                        labels=list(motivos.keys()),
+                        values=list(motivos.values()),
+                        hole=0.4,
+                    )])
+                    fig_motivos.update_layout(height=380)
+                    st.plotly_chart(fig_motivos, use_container_width=True)
+                    st.caption("Identifica la causa principal de pérdida de potenciales entrevistados.")
+                else:
+                    st.info("No hubo pérdidas que graficar en esta simulación.")
+
+            # 4) Distribución de edades
+            with colD:
+                st.markdown("**Distribución de edades de entrevistados (finalizados)**")
+                if sim.edades_entrevista_completada:
+                    fig_edad = px.histogram(
+                        x=sim.edades_entrevista_completada,
+                        nbins=15,
+                        labels={"x": "Edad"},
+                    )
+                    fig_edad.add_vline(
+                        x=metricas["7. Edad Promedio de Entrevistados Completos"],
+                        line_dash="dash", line_color="red",
+                        annotation_text="Promedio",
+                    )
+                    fig_edad.update_layout(height=380, yaxis_title="Cantidad de personas")
+                    st.plotly_chart(fig_edad, use_container_width=True)
+                    st.caption("Ayuda a entender qué franja etaria responde mejor a la encuesta.")
+                else:
+                    st.info("No hubo entrevistas finalizadas para graficar.")
+
+            # 5) Evolución temporal acumulada
+            st.markdown("**Evolución acumulada durante la jornada**")
+            filas_validas = [f for f in vector if isinstance(f.get("N°"), int)]
+            if filas_validas:
+                df_evol = pd.DataFrame(filas_validas)[
+                    ["Reloj", "Cnt Transeuntes Totales", "Cnt Entrevistas Aceptadas", "Cnt Entrevistas Finalizadas"]
+                ]
+                fig_evol = go.Figure()
+                fig_evol.add_trace(go.Scatter(
+                    x=df_evol["Reloj"], y=df_evol["Cnt Transeuntes Totales"],
+                    mode="lines", name="Transeúntes totales"))
+                fig_evol.add_trace(go.Scatter(
+                    x=df_evol["Reloj"], y=df_evol["Cnt Entrevistas Aceptadas"],
+                    mode="lines", name="Entrevistas aceptadas"))
+                fig_evol.add_trace(go.Scatter(
+                    x=df_evol["Reloj"], y=df_evol["Cnt Entrevistas Finalizadas"],
+                    mode="lines", name="Entrevistas finalizadas"))
+                fig_evol.update_layout(height=420, xaxis_title="Tiempo (min)", yaxis_title="Cantidad acumulada")
+                st.plotly_chart(fig_evol, use_container_width=True)
+                st.caption("Permite comparar el ritmo de llegada vs. el ritmo de atención a lo largo de la "
+                           "jornada, útil para decidir si conviene reforzar personal en ciertos horarios.")
+            else:
+                st.info("No hay datos suficientes para graficar la evolución temporal.")
+
+        # ── Tab 4: Tablas Runge-Kutta ────────────────────────────────────────
+        with tab4:
             st.subheader("Tablas de Runge-Kutta calculadas")
             tablas = sim.tablas_rk_acumuladas
 
@@ -819,8 +948,8 @@ def main():
                 ]
                 st.dataframe(pd.DataFrame(resumen), use_container_width=True)
 
-        # ── Tab 4: Última Fila ───────────────────────────────────────────────
-        with tab4:
+        # ── Tab 5: Última Fila ───────────────────────────────────────────────
+        with tab5:
             st.subheader("Última fila del vector de estado (instante final X)")
             st.caption("Sin objetos temporales, sólo estado del sistema y métricas.")
 
@@ -842,7 +971,7 @@ def main():
 ### Sistema "PLAZA"
 - **4 entrevistadores** en la Plaza San Martín de Córdoba.
 - **2 contactos** que informan a los transeúntes.
-- Llegada de transeúntes: **Exponencial(90 personas/hora)**.
+- Llegada de transeúntes: **Exponencial(λ)**, con λ ingresado directamente en **personas/minuto**.
 - Si los 2 contactos están ocupados: el **25%** vuelve más tarde, el **75%** se va definitivamente.
 - Tiempo de información: calculado con **Runge-Kutta (dE/dt = (t²−E)·h²)**, E(0)=Edad~Uniforme[20,85].
   - Se integra hasta que dE/dt > 0. Ese `t` (en unidades, 1 unidad = 8 seg) es el tiempo de información.
@@ -858,7 +987,12 @@ def main():
 5. **Cantidad de personas que volvieron a preguntar**
 6. **% Informados que no fueron a entrevista**
 7. **Edad promedio de entrevistados que completaron** la entrevista
-8. **Tasa de conversión global** (entrevistas finalizadas / transeúntes totales)
+8. **% de personas entrevistadas sobre el total que pasó por la plaza** (entrevistas finalizadas / transeúntes totales)
+
+### 📊 Gráficos
+En la pestaña **Gráficos** vas a encontrar visualizaciones para apoyar decisiones: ocupación de
+servidores, embudo de conversión, motivos de pérdida de entrevistas, distribución de edades y
+evolución acumulada de llegadas vs. entrevistas a lo largo de la jornada.
             """)
 
 
