@@ -23,12 +23,13 @@ from ui import (
 
 def main():
     st.set_page_config(
-        page_title="Simulación PLAZA - UTN FRC",
+        page_title="Simulación Plaza SM - G23",
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
-    st.title("🏛️ Simulación: PLAZA San Martín — UTN FRC 4K1 2026")
+    st.title("Simulación Plaza San Martín, Grupo 23")
+    st.subheader("4K1 - UTN FRC - 2026")
     st.markdown("**TP5 · Simulación por Eventos Discretos + Runge-Kutta**")
 
     # ── Sidebar: Parámetros ──────────────────────────────────────────────────
