@@ -48,6 +48,24 @@ def runge_kutta_tiempo_info(edad: float, h: float, seg_por_unidad: int) -> tuple
         dE_new = f_ode(t, E, h)
         if dE_new > 0:
             t_final = t
+            # Agregar la fila final donde K1 ya es positivo (la que disparó el corte)
+            k1_f = dE_new
+            k2_f = f_ode(t + h / 2, E + h / 2 * k1_f, h)
+            k3_f = f_ode(t + h / 2, E + h / 2 * k2_f, h)
+            k4_f = f_ode(t + h, E + h * k3_f, h)
+            t_new_f = round(t + h, 10)
+            E_new_f = E + (h / 6) * (k1_f + 2 * k2_f + 2 * k3_f + k4_f)
+            tabla.append({
+                "t": round(t, 4),
+                "E": round(E, 6),
+                "K1": round(k1_f, 6),
+                "K2": round(k2_f, 6),
+                "K3": round(k3_f, 6),
+                "K4": round(k4_f, 6),
+                "t(i+1)": round(t_new_f, 4),
+                "E(i+1)": round(E_new_f, 6),
+                "_k1_positivo": True,
+            })
             break
         steps += 1
 

@@ -5,7 +5,6 @@ Algunas métricas se siguen calculando en `core/simulacion.py` (porque las usa,
 por ejemplo, la pestaña de Gráficos) pero se ocultan de esta vista a pedido.
 """
 
-import pandas as pd
 import streamlit as st
 
 # Métricas que se calculan pero NO se muestran en esta pestaña.
@@ -39,7 +38,4 @@ def render(metricas: dict):
         else:
             col.metric(k, v)
 
-    st.divider()
-    st.subheader("Tabla de métricas completa")
-    df_met = pd.DataFrame(list(metricas_visibles.items()), columns=["Métrica", "Valor"])
-    st.dataframe(df_met, use_container_width=True)
+

@@ -36,7 +36,24 @@ def render(sim, rk_h: float):
     )
 
     df_rk = pd.DataFrame(tabla_sel["tabla"])
-    st.dataframe(df_rk, use_container_width=True, height=400)
+
+    # Columna interna de bandera: sacarla de la vista pero usarla para colorear
+    tiene_bandera = "_k1_positivo" in df_rk.columns
+    if tiene_bandera:
+        idx_final = df_rk[df_rk["_k1_positivo"] == True].index
+        df_rk = df_rk.drop(columns=["_k1_positivo"])
+
+    def resaltar_fila_k1(df):
+        estilos = pd.DataFrame("", index=df.index, columns=df.columns)
+        if tiene_bandera and len(idx_final) > 0:
+            estilos.loc[idx_final[0]] = "background-color: #d0f0dc; color: #1a5e35; font-weight: 600"
+        return estilos
+
+    styled = df_rk.style.apply(resaltar_fila_k1, axis=None)
+    st.dataframe(styled, use_container_width=True, height=400)
+
+    if tiene_bandera and len(idx_final) > 0:
+        st.caption("🟢 La última fila (resaltada) es donde K1 se vuelve positivo — condición de corte de la integración.")
 
     st.caption(
         "**dE/dt = (t² − E) · h²** · "
