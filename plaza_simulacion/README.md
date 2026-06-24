@@ -1,9 +1,6 @@
-# Simulación PLAZA — versión modularizada
+# Simulación PLAZA 
 
 TP5 · Simulación UTN FRC 4K1 2026 · Investigación de mercado en Plaza San Martín de Córdoba.
-
-El archivo original `plaza_simulacion.py` (1001 líneas, todo en un solo módulo) se separó
-en un paquete por responsabilidad, sin cambiar ninguna lógica ni fórmula.
 
 ## Estructura
 
@@ -48,9 +45,4 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Notas
 
-- No se modificó ninguna fórmula, probabilidad, ni el orden de eventos de la simulación;
-  es una reorganización de archivos, no una reescritura del modelo.
-- Si en el futuro se agrega una nueva pestaña o gráfico, alcanza con crear un archivo nuevo
-  en `ui/` con su propio `render(...)` e importarlo en `app.py`.
